@@ -46,8 +46,8 @@ const typeDefs = gql`
       author: String!
       genres: [String!]!
     ): Book
-    addAuthor(name: String!, born: Int!): Author
-    editAuthor(name: String!, setBornTo: Int!): Author
+    addAuthor(name: String!, born: Int): Author
+    editAuthor(id: String!, setBornTo: Int!): Author
   }
 `;
 
@@ -56,28 +56,50 @@ const resolvers = {
     bookCount: () => Book.collection.countDocuments(),
     authorCount: () => Author.collection.countDocuments(),
     allBooks: (root, args) => {
-      return Book.find({});
+      if (!args.genre) {
+        return Book.find({}).populate("author");
+      }
+      return Book.find({ genres: { $in: args.genre } }).populate("author");
     },
     allAuthors: (root, args) => {
       return Author.find({});
     },
   },
   Author: {
-    bookCount: (root) => {
-      return books.filter((book) => book.author === root.name).length;
+    bookCount: async (root) => {
+      const booksByAuthor = await Book.find({ author: root.id });
+      return booksByAuthor.length;
     },
   },
   Mutation: {
-    addBook: (root, args) => {
-      const book = new Book({ ...args });
+    addBook: async (root, args) => {
+      const existingAuthor = await Author.findOne({ name: args.author });
+
+      if (!existingAuthor) {
+        const newAuthor = new Author({ name: args.author });
+        await newAuthor.save();
+        const book = new Book({ ...args, author: newAuthor });
+        return book.save();
+      }
+      const book = new Book({ ...args, author: existingAuthor });
       return book.save();
     },
     addAuthor: (root, args) => {
       const author = new Author({ ...args });
       return author.save();
     },
-    editAuthor: (root, args) => {
-      // TODO
+    editAuthor: async (root, args) => {
+      const author = await Author.findById({ id: args.id });
+      author.born = args.setBornTo;
+
+      try {
+        await author.save();
+      } catch (error) {
+        throw new UserInputError(error.message, {
+          invalidArgs: args,
+        });
+      }
+      return author;
     },
   },
 };
